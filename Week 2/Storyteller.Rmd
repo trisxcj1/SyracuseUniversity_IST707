@@ -1,0 +1,251 @@
+# Packages
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(tm)
+```
+
+# Data loading & cleaning
+```{r}
+storyteller <- read.csv(data_path)
+
+# Checking the initial structure of the data
+str(storyteller)
+
+# Renaming the columns 
+storyteller_colnames <- c(
+  "School", "Section", "VeryAhead", "Middling",
+  "Behind", "MoreBehind", "VeryBehind", "Completed"
+)
+
+colnames(storyteller) <- storyteller_colnames
+
+# Changing column types
+storyteller$School <- factor(storyteller$School)
+storyteller$Section <- factor(storyteller$Section)
+
+# Summarizing the data set
+summary(storyteller)
+
+# Displaying the head of the data
+head(storyteller, 5)
+  
+```
+
+# EDA
+## Aggregate level
+```{r}
+# Displaying the distribution of sections per school
+storyteller %>% 
+  group_by(School) %>% 
+  summarize(number_of_sections = length(unique(Section))) %>% 
+  ggplot() +
+  geom_col(aes(x=School, y=number_of_sections)) +
+  ylab("Number of Sections") +
+  ggtitle("Number of Sections per School") +
+  theme_few()
+
+# Distribution of Students who completed courses
+storyteller %>% 
+  select(School, Completed) %>% 
+  group_by(School) %>% 
+  summarize(number_of_students = sum(Completed)) %>% 
+  ggplot() +
+  geom_col(aes(x=School, y=number_of_students), fill=3) +
+  ylab("Number of Students") +
+  ggtitle("Number of Students Who Completed The Course per School") +
+  theme_few()
+
+# Distribution of Students who are middling courses
+storyteller %>% 
+  select(School, Middling) %>% 
+  group_by(School) %>% 
+  summarize(number_of_students = sum(Middling)) %>% 
+  ggplot() +
+  geom_col(aes(x=School, y=number_of_students), fill="darkblue") +
+  ylab("Number of Students") +
+  ggtitle("Number of Students Who Are Middling The Course per School") +
+  theme_few()
+
+# Distribution of Students who are behind in courses
+storyteller %>% 
+  select(School, Behind) %>% 
+  group_by(School) %>% 
+  summarize(number_of_students = sum(Behind)) %>% 
+  ggplot() +
+  geom_col(aes(x=School, y=number_of_students), fill="pink") +
+  ylab("Number of Students") +
+  ggtitle("Number of Students Who Are Behind In The Course per School") +
+  theme_few()
+
+
+# Distribution of Students who are more behind in courses
+storyteller %>% 
+  select(School, MoreBehind) %>% 
+  group_by(School) %>% 
+  summarize(number_of_students = sum(MoreBehind)) %>% 
+  ggplot() +
+  geom_col(aes(x=School, y=number_of_students), fill="orange") +
+  ylab("Number of Students") +
+  ggtitle("Number of Students Who Are More Than\n10 Lessons Behind In The Course per School") +
+  theme_few()
+
+# Distribution of Students who are behind in courses
+storyteller %>% 
+  select(School, VeryBehind) %>% 
+  group_by(School) %>% 
+  summarize(number_of_students = sum(VeryBehind)) %>% 
+  ggplot() +
+  geom_col(aes(x=School, y=number_of_students), fill="red") +
+  ylab("Number of Students") +
+  ggtitle("Number of Students Who Are Very Behind In The Course per School") +
+  theme_few()
+
+# From the initial distribution, it was seen that School A had the most sections (and most Students)
+# Further distributions show that School A has the most Students within each category
+## ie, School A has the highest number of students Completing the course, Middling the course etc (which is not unusual)
+
+  
+```
+
+## Proportions of poor performance
+```{r}
+# Creating a df for each school
+school_A <- storyteller %>% 
+  filter(School == "A")
+
+school_B <- storyteller %>% 
+  filter(School == "B")
+
+school_C <- storyteller %>% 
+  filter(School == "C")
+
+school_D <- storyteller %>% 
+  filter(School == "D")
+
+school_E <- storyteller %>% 
+  filter(School == "E")
+
+# Calculating the total number of students
+student_sumns <- colSums(storyteller[, 3:8])
+
+# Determining the proportion of poor performance by school
+school_A_student_sums <- colSums(school_A[, 3:8])
+school_B_student_sums <- colSums(school_B[, 3:8])
+school_C_student_sums <- colSums(school_C[, 3:8])
+school_D_student_sums <- colSums(school_D[, 3:8])
+school_E_student_sums <- colSums(school_E[, 3:8])
+
+print("The number of students in School A accounts for ~" + as.String(round(sum(school_A_student_sums)/sum(student_sumns), 2) * 100) + "% of the student population")
+print("The number of students in School B accounts for ~" + as.String(round(sum(school_B_student_sums)/sum(student_sumns), 2) * 100) + "% of the student population")
+print("The number of students in School C accounts for ~" + as.String(round(sum(school_C_student_sums)/sum(student_sumns), 2) * 100) + "% of the student population")
+print("The number of students in School D accounts for ~" + as.String(round(sum(school_D_student_sums)/sum(student_sumns), 2) * 100) + "% of the student population")
+print("The number of students in School E accounts for ~" + as.String(round(sum(school_E_student_sums)/sum(student_sumns), 2) * 100) + "% of the student population")
+
+
+# There are 3 measures of poor performance (Behind, MoreBehind, VeryBehind)
+school_A_proportion_of_poor_performance <- sum(
+  school_A_student_sums["Behind"],
+  school_A_student_sums["MoreBehind"],
+  school_A_student_sums["VeryBehind"]
+) / sum(student_sumns)
+
+school_B_proportion_of_poor_performance <- sum(
+  school_B_student_sums["Behind"],
+  school_B_student_sums["MoreBehind"],
+  school_B_student_sums["VeryBehind"]
+) / sum(student_sumns)
+
+school_C_proportion_of_poor_performance <- sum(
+  school_C_student_sums["Behind"],
+  school_C_student_sums["MoreBehind"],
+  school_C_student_sums["VeryBehind"]
+) / sum(student_sumns)
+
+school_D_proportion_of_poor_performance <- sum(
+  school_D_student_sums["Behind"],
+  school_D_student_sums["MoreBehind"],
+  school_D_student_sums["VeryBehind"]
+) / sum(student_sumns)
+
+school_E_proportion_of_poor_performance <- sum(
+  school_E_student_sums["Behind"],
+  school_E_student_sums["MoreBehind"],
+  school_E_student_sums["VeryBehind"]
+) / sum(student_sumns)
+
+print("Poor performance in school A accounts for ~" + as.String(round(school_A_proportion_of_poor_performance, 2) * 100) + "% of the data")
+print("Poor performance in school B accounts for ~" + as.String(round(school_B_proportion_of_poor_performance, 2) * 100) + "% of the data")
+print("Poor performance in school C accounts for ~" + as.String(round(school_C_proportion_of_poor_performance, 2) * 100) + "% of the data")
+print("Poor performance in school D accounts for ~" + as.String(round(school_D_proportion_of_poor_performance, 2) * 100) + "% of the data")
+print("Poor performance in school E accounts for ~" + as.String(round(school_E_proportion_of_poor_performance, 2) * 100) + "% of the data")
+
+print("The poor performance in School A accounts for ~" + as.String(round(sum(
+  school_A_student_sums["Behind"],
+  school_A_student_sums["MoreBehind"],
+  school_A_student_sums["VeryBehind"]
+) / sum(
+  student_sumns["Behind"],
+  student_sumns["MoreBehind"],
+  student_sumns["VeryBehind"]
+), 2) * 100) + "% of poor performance in general")
+
+# As can be seen, the poor performance in School A is drastically worse than the poor performance in all other schools
+
+```
+
+## School level
+```{r}
+# Distribution of students by course progress for each school
+barplot(student_sumns, main="Overall (All Schools)", ylab="Number of Students")
+barplot(school_A_student_sums, main="School A", ylab="Number of Students")
+barplot(school_B_student_sums, main="School B", ylab="Number of Students")
+barplot(school_C_student_sums, main="School C", ylab="Number of Students")
+barplot(school_D_student_sums, main="School D", ylab="Number of Students")
+barplot(school_E_student_sums, main="School E", ylab="Number of Students")
+
+# All schools have a high number of students who are behind in the course
+# Schools A, C and D generally follow the distribution seen within the overall distribution plot
+# School B has the highest number of students who completed the course
+# School E has the highest number of students who are very behind in the course
+
+## Although School E has a high proportion of students who are very behind in the course, School E's population only accounts for ~7% of the student population. Therefore, the results are less likely to be an actual representation of the School's situation.
+
+## Similar things can be said about Schools D and C populations accounts for ~1% and ~5% of the student population, respectively.
+
+## The results regarding Schools A and B are more likely to be an accurate representation as those populations account for ~58% and 28% of the student population, respectively
+
+### Therefore, School B is doing a good job in terms of getting students to complete courses, whereas School A is doing a bad job overall
+
+```
+
+### Looking closer at School A
+```{r}
+# Determining the worst performing section
+school_A_students_per_section <- rowSums(school_A[, 3:8])
+
+school_A$number_of_poor_performing_students <- rowSums(school_A[, 5:7])
+school_A$proportion_of_students_performing_poorly <- round(school_A$number_of_poor_performing_students/school_A_students_per_section, 4)
+
+school_A %>% 
+  select(Section, proportion_of_students_performing_poorly) %>% 
+  arrange(desc(proportion_of_students_performing_poorly))
+
+# Section 8 is the worst section for School A -- it has ~89% of its students performing poorly
+
+```
+
+### Looking closer at School B
+```{r}
+# Determining the best performing section
+school_B_students_per_section <- rowSums(school_B[, 3:8])
+
+school_B$proportion_of_students_performing_well <- round(school_B$Completed/school_B_students_per_section, 4)
+
+school_B %>% 
+  select(Section, proportion_of_students_performing_well) %>% 
+  arrange(desc(proportion_of_students_performing_well))
+
+# Section 10 is the best section for School B -- it has ~54% of its students completing the course
+
+```
