@@ -1,0 +1,149 @@
+# Packages
+```{r}
+library(tidyverse)
+library(arules)
+library(arulesViz)
+```
+
+# Data loading and cleaning
+```{r}
+# Data loading
+bank_df <- read.csv(data_path)
+str(bank_df)
+
+# Data cleaning
+summary(bank_df)
+
+## there are no missing values, but I should convert particular character variables into factor variables
+bank_df$sex <- factor(bank_df$sex)
+bank_df$region <- factor(bank_df$region)
+bank_df$married <- factor(bank_df$married)
+bank_df$children <- factor(bank_df$children)
+bank_df$car <- factor(bank_df$car)
+bank_df$save_act <- factor(bank_df$save_act)
+bank_df$current_act <- factor(bank_df$current_act)
+bank_df$mortgage <- factor(bank_df$mortgage)
+bank_df$pep <- factor(bank_df$pep)
+
+# Discretizing age -- adding an `age_group` variable to the df
+bank_df$age_group <- cut(
+  bank_df$age,
+  breaks=c(10, 20, 30, 40, 50, 60, 70, Inf),
+  labels=c("teens", "twenties", "thirties", "forties", "fifties", "sixties", "seventies+")
+)
+
+# Discretizing income -- adding an `income_group` variable to the df
+min_income <- min(bank_df$income)
+max_income <- max(bank_df$income)
+num_income_bins <- 5
+income_width <- (max_income - min_income)/num_income_bins
+
+bank_df$income_group <- cut(
+  bank_df$income,
+  breaks=seq(min_income, max_income, income_width),
+  labels=c("LowIncome", "LowerMiddleIncome", "MiddleIncome", "UpperMiddleIncome", "UpperIncome")
+) 
+
+# Dropping the `id` column, along with non-discretized columns
+bank_cleaned_df <- bank_df %>%
+  select(
+    age_group, sex, region,
+    income_group, married, children, car,
+    save_act, current_act, mortgage, pep
+  )
+str(bank_cleaned_df)
+
+```
+
+# General rules
+```{r}
+# Generating an initial set of rules
+rules_1 <- apriori(bank_cleaned_df, parameter=list(supp = 0.001, conf = 0.8))
+options(digits=2)
+summary(rules_1)
+
+rules_1_by_confidence <- sort(rules_1, by="confidence", decreasing=T)
+inspect(rules_1_by_confidence[1:20])
+
+rules_1_by_lift <- sort(rules_1, by="lift", decreasing=T)
+inspect(rules_1_by_lift[1:20])
+
+# Generating new rules -- specifying `minlen` to avoid empty LHS
+rules_2 <- apriori(bank_cleaned_df, parameter=list(supp = 0.001, conf= 0.8, minlen = 3))
+
+rules_2_by_confidence <- sort(rules_2, by="confidence", decreasing=T)
+inspect(rules_2_by_confidence[1:20])
+
+rules_2_by_lift <- sort(rules_2, by="lift", decreasing=T)
+inspect(rules_2_by_lift[1:20])
+
+# Generating new rules -- generating rules with higher support
+rules_3 <- apriori(bank_cleaned_df, parameter=list(supp = 0.01, conf= 0.8, minlen = 3))
+
+rules_3_by_confidence <- sort(rules_3, by="confidence", decreasing=T)
+inspect(rules_3_by_confidence[1:20])
+
+rules_3_by_lift <- sort(rules_3, by="lift", decreasing=T)
+inspect(rules_3_by_lift[1:20])
+
+# -- generating rules with higher support
+rules_4 <- apriori(bank_cleaned_df, parameter=list(supp = 0.06, conf= 0.8, minlen = 3))
+
+rules_4_by_confidence <- sort(rules_4, by="confidence", decreasing=T)
+inspect(rules_4_by_confidence[1:20])
+
+rules_4_by_lift <- sort(rules_4, by="lift", decreasing=T)
+inspect(rules_4_by_lift[1:20])
+
+
+```
+
+# Investigating rules where PEP is the RHS
+## PEP = 'YES'
+```{r}
+pep_yes_rules_1 <- apriori(
+  bank_cleaned_df,
+  parameter=list(supp = 0.06, conf = 0.8, minlen = 3),
+  appearance=list(default = "lhs", rhs = "pep=YES"),
+  control=list(verbose = F)
+)
+
+pep_yes_rules_1_by_confidence <- sort(pep_yes_rules_1, by="confidence", decreasing=T)
+inspect(pep_yes_rules_1_by_confidence[1:20])
+
+pep_yes_rules_1_by_lift <- sort(pep_yes_rules_1, by="lift", decreasing=T)
+inspect(pep_yes_rules_1_by_lift[1:20])
+
+pep_yes_rules_1_by_support <- sort(pep_yes_rules_1, by="support", decreasing=T)
+inspect(pep_yes_rules_1_by_support[1:20])
+
+plot(
+  pep_yes_rules_1_by_lift[1:10],
+  method="graph",
+  interactive=T,
+  shading=NA
+)
+
+```
+
+## PEP = 'NO'
+```{r}
+pep_no_rules_1 <- apriori(
+  bank_cleaned_df,
+  parameter=list(supp = 0.06, conf = 0.8, minlen = 4),
+  appearance=list(default = "lhs", rhs = "pep=NO"),
+  control=list(verbose = F)
+)
+
+pep_no_rules_1_by_confidence <- sort(pep_no_rules_1, by="confidence", decreasing=T)
+inspect(pep_no_rules_1_by_confidence[1:20])
+
+pep_no_rules_1_by_lift <- sort(pep_no_rules_1, by="lift", decreasing=T)
+inspect(pep_no_rules_1_by_lift[1:20])
+
+pep_no_rules_1_by_support <- sort(pep_no_rules_1, by="support", decreasing=T)
+inspect(pep_no_rules_1_by_support[1:20])
+
+
+```
+
