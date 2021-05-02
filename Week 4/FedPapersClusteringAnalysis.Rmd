@@ -1,0 +1,131 @@
+# Packages
+```{r}
+library(wordcloud)
+library(tm)
+library(slam) 
+library(quanteda)
+library(SnowballC) 
+library(arules)
+library(proxy)
+library(cluster)
+library(stringi) 
+library(Matrix)
+library(tidytext)
+library(plyr)
+library(ggplot2)
+library(factoextra)
+library(mclust)
+library(dplyr)
+library(rdwplus)
+library(corpus)
+
+```
+
+# Data loading and cleaning
+```{r}
+# Data loading
+fed_papers <- read.csv(data_path)
+str(fed_papers)
+
+# Data summary
+summary(fed_papers)
+sum(is.na(fed_papers)) # -- there are no missing values in the data set
+
+# Data cleansing
+# -- Removing `the `author` from the data frame
+fed_papers_cleaned <- fed_papers
+fed_papers_cleaned$author <- NULL
+
+# -- Saving the rownames as the `filename` and dropping `filename`
+# --- First making `filename` easier to read
+# ---- disputed papers will contain 'di_..', John Jay papers will contain 'Ja_..', Hamilton papers will contain 'Ha_..', Madison papers will contain 'Ma_..', and joint papers will contain 'HM_..'
+fed_papers_cleaned <- fed_papers_cleaned %>% 
+  separate(filename, c("author", "FED", "number"))
+
+fed_papers_cleaned$filename <- str_c(
+  str_sub(fed_papers_cleaned$author, 1, 2),
+  "_",
+  fed_papers_cleaned$number
+)
+
+fed_papers_cleaned$author <- NULL
+fed_papers_cleaned$FED <- NULL
+fed_papers_cleaned$number <- NULL
+
+# -- Now setting `filename` as the rownames, and dropping `filename`
+rownames(fed_papers_cleaned) <- fed_papers_cleaned$filename
+fed_papers_cleaned$filename <- NULL
+str(fed_papers_cleaned)
+
+```
+
+# Analysis
+## KMeans
+```{r}
+# Setting the seed
+set.seed(1234)
+fviz_nbclust(fed_papers_cleaned, kmeans, method="silhouette")
+
+# Silhouette plot states that 2 clusters are optimal (hard to believe)
+set.seed(1234)
+cluster_k2 <- kmeans(fed_papers_cleaned, 2)
+fed_papers_km2 <- fed_papers
+fed_papers_km2$clusters <- as.factor(cluster_k2$cluster)
+
+# -- Plotting the papers with 2 clusters
+clusplot(fed_papers_km2, fed_papers_km2$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_k2, data=fed_papers_cleaned)
+
+# There are 4 main groupings. Therefore, attempting to cluster on 4 groups
+set.seed(1234)
+cluster_k4 <- kmeans(fed_papers_cleaned, 4)
+fed_papers_km4 <- fed_papers
+fed_papers_km4$clusters <- as.factor(cluster_k4$cluster)
+
+# -- Plotting the papers with 4 clusters
+clusplot(fed_papers_km4, fed_papers_km4$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_k4, data=fed_papers_cleaned)
+
+
+# The Jay papers seem to be separating from the other groups
+# The other groups are still too wide and could be segregated more -- clustering on 6 groups
+set.seed(1234)
+cluster_k6 <- kmeans(fed_papers_cleaned, 6)
+fed_papers_km6 <- fed_papers
+fed_papers_km6$clusters <- as.factor(cluster_k6$cluster)
+
+# -- Plotting the papers with 6 clusters
+clusplot(fed_papers_km6, fed_papers_km6$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_k6, data=fed_papers_cleaned)
+
+
+# 6 clusters is performing well, but ~2 groups seem like they can be segregated more -- clustering on 8 groups
+set.seed(1234)
+cluster_k8 <- kmeans(fed_papers_cleaned, 8)
+fed_papers_km8 <- fed_papers
+fed_papers_km8$clusters <- as.factor(cluster_k8$cluster)
+
+# -- Plotting the papers with 8 clusters
+clusplot(fed_papers_km8, fed_papers_km8$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_k8, data=fed_papers_cleaned)
+
+```
+
+## HCA
+```{r}
+eucledianDist_fed_papers <- dist(fed_papers_cleaned)
+
+completeHCA_fed_papers <- hclust(eucledianDist_fed_papers, method="complete")
+plot(completeHCA_fed_papers, cex=0.6, main=c("HCA Using Complete Linkage"))
+
+averageHCA_fed_papers <- hclust(eucledianDist_fed_papers, method="average")
+plot(averageHCA_fed_papers)
+
+```
+
+# Conclusion
+```{r}
+
+# It is likely that Madison wrote the disputed papers
+```
+
