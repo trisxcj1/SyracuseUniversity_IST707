@@ -1,0 +1,131 @@
+# Packages
+```{r}
+library(tm)
+library(stringr)
+library(wordcloud)
+library(stringi)
+library(Matrix)
+
+library(tidytext)
+library(dplyr)
+library(ggplot2)
+
+library(factoextra)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+```
+
+# Data loading and cleaning
+```{r}
+# Data loading -- creating a vector corpus
+# `data_path` is the directory containing ONLY txt files of the disputes papers
+# -- `data_path` looks something like "C:/Users/MyUser/Folder_1/Folder_with_only_txt_files"
+fed_papers_VCorpus <- Corpus(DirSource(data_path))
+
+length(fed_papers_VCorpus) # 85
+
+# Cleaning the vector corpus
+# -- need to define a set of stopwords, if I do not want to use the built in English stopwords
+my_stopwords <- c(
+  "will","one","two", "may","less","publius","Madison","Alexand", "Alexander", 
+  "James", "Hamilton","Jay", "well","might","without","small", "single", "several", 
+  "but", "very", "can", "must", "also", "any", "and", "are", "however", "into", "almost", 
+  "can","for", "add", "Author"
+)
+
+# -- now cleaning the corpus
+fed_papers_VCorpus <- tm_map(fed_papers_VCorpus, content_transformer(tolower))
+fed_papers_VCorpus <- tm_map(fed_papers_VCorpus, removePunctuation)
+fed_papers_VCorpus <- tm_map(fed_papers_VCorpus, removeNumbers)
+fed_papers_VCorpus <- tm_map(fed_papers_VCorpus, removeWords, my_stopwords)
+fed_papers_VCorpus <- tm_map(fed_papers_VCorpus, stripWhitespace)
+
+# Creating a DTM
+min_word_frequency <- 30
+max_word_frequency <- 1000
+fed_papers_dtm <- DocumentTermMatrix(
+  fed_papers_VCorpus,
+  control=list(
+    wordLengths=c(3, 15),
+    stemming=T,
+    bounds=list(global=c(min_word_frequency, max_word_frequency))
+  )
+)
+
+fed_papers_dtm_matrix <- as.matrix(fed_papers_dtm)
+
+# Generating the word frequencies and whatnot
+word_frequency <- colSums(fed_papers_dtm_matrix)
+row_sum_per_doc <- rowSums(fed_papers_dtm_matrix)
+
+# Create a normalized version of the dtm
+fed_papers_dtm_matrix_normalized <- apply(fed_papers_dtm_matrix, 1, function(i) round(i/sum(i), 3))
+fed_papers_dtm_matrix_normalized <- t(fed_papers_dtm_matrix_normalized)
+
+fed_papers_dtm_matrix[c(1:11), c(2:10)]
+
+fed_papers_df <- as.data.frame(as.matrix(fed_papers_dtm_matrix_normalized))
+
+fed_papers_df <- fed_papers_df %>% 
+  add_rownames()
+names(fed_papers_df)[1] <- "author"
+fed_papers_df[1:11, 1] = "di"
+fed_papers_df[12:62, 1] = "Ha"
+fed_papers_df[63:65, 1] = "HM"
+fed_papers_df[65:70, 1] = "Ja"
+fed_papers_df[71:85, 1] = "Ma"
+# Ha_Ma_di_papers <- fed_papers_df[c(1:62, 71:85), ]
+str(fed_papers_df)
+
+```
+
+# Analysis
+## Decision Tree
+```{r}
+# Splitting the data into test and train sets
+split_ratio <- 0.6
+set.seed(1234)
+split_sample <- sample.int(n=nrow(fed_papers_df), size=floor(split_ratio*nrow(fed_papers_df)), replace=F)
+
+trainData <- fed_papers_df[split_sample, ]
+testData <- fed_papers_df[-split_sample, ]
+
+# -- developing model 1
+model_1 <- rpart(author ~ ., data=trainData, method="class", control=rpart.control(cp=0))
+summary(model_1)
+
+# -- predicting outcomes and testing model 1
+predicted_1 <- predict(model_1, testData, type="class")
+rsq.rpart(model_1)
+fancyRpartPlot(model_1)
+table(Predicted=predicted_1, Actual=testData$author) # -- 85% (29/34) accuracy
+
+
+# -- developing model 2
+# --- here I will specify the minsplit and the maxdepth of the decision tree
+model_2 <- rpart(author ~ ., data=trainData, method="class", control=rpart.control(cp=0, minsplit=2, maxdepth=4))
+summary(model_2)
+
+# -- predicting outcomes and testing model 2
+predicted_2 <- predict(model_2, testData, type="class")
+rsq.rpart(model_2)
+fancyRpartPlot(model_2)
+table(Predicted=predicted_2, Actual=testData$author) # -- 88% (30/34) accuracy
+
+
+
+# -- developing model 3
+# --- here I will change the minsplit and the maxdepth of the decision tree
+model_3 <- rpart(author ~ ., data=trainData, method="class", control=rpart.control(cp=0, minsplit=2, maxdepth=6))
+summary(model_3)
+
+# -- predicting outcomes and testing model 3
+predicted_3 <- predict(model_3, testData, type="class")
+rsq.rpart(model_3)
+fancyRpartPlot(model_3)
+table(Predicted=predicted_3, Actual=testData$author) # -- 88% (30/34) accuracy
+
+```
+
