@@ -1,0 +1,103 @@
+# Packages
+```{r}
+library(tidyverse)
+library(e1071)
+library(caret)
+library(klaR)
+library(rpart)
+library(rpart.plot)
+library(factoextra)
+library(rattle)
+library(RColorBrewer)
+```
+
+# Data loading and cleaning
+```{r}
+training_df <- read.csv(trainingData_data_path)
+unseen_df <- read.csv(unseenData_data_path) # This has no data labels
+
+summary(training_df)
+summary(testing_df)
+
+# Need to convert the labels into factors
+training_df$label <- as.factor(training_df$label)
+unseen_df$label <- as.factor(unseen_df$label)
+
+```
+
+# Turning off warnings
+```{r}
+options(warn=-1)
+default_par = par()
+```
+
+# Creating a `testing_df`
+```{r}
+# Splitting the data into test and train sets
+split_ratio <- 0.6
+set.seed(1234)
+split_sample <- sample.int(n=nrow(training_df), size=floor(split_ratio*nrow(training_df)), replace=F)
+trainData <- training_df[split_sample, ]
+testData <- training_df[-split_sample, ]
+
+```
+
+# Modeling
+## Naive Bayes
+```{r}
+# -- developing naive bayes model 1
+nb_1 <- naiveBayes(label ~ ., data=trainData)
+summary(nb_1)
+
+# -- predictiong outcomes and testing naive bayes model 1
+testData$nb_1_predictions <- predict(nb_1, testData)
+nb_1_accuracy <- sum(testData$label == testData$nb_1_predictions)/nrow(testData)
+nb_1_confusion_matrix <- table(Actual=testData$label, Predicted=testData$nb_1_predictions)
+
+# -- developing naive bayes model 2
+nb_2 <- naiveBayes(label ~ ., data=trainData, laplace=5)
+summary(nb_2)
+
+# -- predictiong outcomes and testing naive bayes model 2
+testData$nb_2_predictions <- predict(nb_2, testData)
+nb_2_accuracy <- sum(testData$label == testData$nb_2_predictions)/nrow(testData)
+nb_2_confusion_matrix <- table(Actual=testData$label, Predicted=testData$nb_2_predictions)
+
+```
+
+## Decision tree
+```{r}
+# Decision tree model 1
+# -- developing model 1
+dt_1 <- rpart(label ~ ., data=trainData, method="class", control=rpart.control(cp=0))
+summary(dt_1)
+
+# -- predicting outcomes and testing model 1
+testData$dt_1_predictions <- predict(dt_1, testData, type="class")
+rsq.rpart(dt_1)
+fancyRpartPlot(dt_1)
+
+dt_1_accuracy <- sum(testData$label == testData$dt_1_predictions)/nrow(testData)
+dt_1_confusion_matrix <- table(Actual=testData$label, Predicted=testData$dt_1_predictions)
+
+dt_1_accuracy
+dt_1_confusion_matrix
+
+# Decision tree model 2
+# -- developing model 2
+dt_2 <- rpart(label ~ ., data=trainData, method="class", control=rpart.control(cp=0, minsplit=100, maxdepth=10)) # -- I should really do grid search here
+summary(dt_2)
+
+# -- predicting outcomes and testing model 2
+testData$dt_2_predictions <- predict(dt_2, testData, type="class")
+rsq.rpart(dt_2)
+fancyRpartPlot(dt_2)
+
+dt_2_accuracy <- sum(testData$label == testData$dt_2_predictions)/nrow(testData)
+dt_2_confusion_matrix <- table(Actual=testData$label, Predicted=testData$dt_2_predictions)
+
+dt_2_accuracy
+dt_2_confusion_matrix
+
+```
+
