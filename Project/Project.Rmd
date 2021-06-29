@@ -1,0 +1,432 @@
+# Packages
+```{r}
+library(plyr)
+library(tidyverse)
+library(ggthemes)
+library(arules)
+library(arulesViz)
+library(cluster)
+library(factoextra)
+library(mclust)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(e1071)
+library(kernlab)
+library(neuralnet)
+library(randomForest)
+library(caret)
+```
+
+# Data loading and cleaning
+## Summary, conversions, and transformations
+```{r}
+# Importing the data
+transactions_df <- read.csv(data_path)
+
+# summary(transactions_df)
+str(transactions_df)
+
+# Converting the column types
+# -- character variables
+transactions_df$os__cart_id <- as.character(transactions_df$os__cart_id)
+transactions_df$os__user_id <- as.character(transactions_df$os__user_id)
+transactions_df$os__store_id <- as.character(transactions_df$os__store_id)
+transactions_df$os__product_id <- as.character(transactions_df$os__product_id)
+
+# -- numeric variables
+transactions_df$os__n_units <- as.integer(transactions_df$os__n_units)
+transactions_df$os__discounted_checkout_price_per_unit <- as.double(transactions_df$os__discounted_checkout_price_per_unit)
+transactions_df$os__sales <- as.double(transactions_df$os__sales)
+
+# -- date variables
+transactions_df$os__checkout_date <- parse_date(transactions_df$os__checkout_date, format="%Y-%m-%d")
+
+# -- factor variables
+transactions_df$p__product_name <- as.factor(transactions_df$p__product_name)
+transactions_df$p__product_category <- as.factor(transactions_df$p__product_category)
+transactions_df$p__serial_brand <- as.factor(transactions_df$p__serial_brand)
+transactions_df$s__estimated_county <- as.factor(transactions_df$s__estimated_county)
+
+# Creating a df with the product category number and the product category name
+product_category_number_name <- data.frame(
+  c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+  c("flower", "edible", "extract", "merch", "grow", "tincture", "gear", "topical", "preroll", "vape")
+)
+colnames(product_category_number_name) <- c("product_category_number", "product_category_name")
+product_category_number_name$product_category_number <- as.factor(product_category_number_name$product_category_number)
+
+# Joining dfs and creating a new variables
+transactions_df <- transactions_df %>% 
+  inner_join(product_category_number_name, by=c("p__product_category"="product_category_number"))
+
+# -- shows the product name, product category, and brand name
+transactions_df$granular_product <- paste(
+  transactions_df$p__product_name,
+  "--",
+  transactions_df$product_category_name,
+  "--",
+  transactions_df$p__serial_brand
+)
+transactions_df$granular_product <- as.factor(transactions_df$granular_product)
+
+```
+
+## Creating item lists as transactions format
+```{r}
+# Creating item lists which would be loaded as a `transactions` format
+# -- item list with brands only
+brands_item_list <- ddply(
+  transactions_df,
+  c("os__cart_id"),
+  function(df)paste(df$p__serial_brand, collapse=",")
+)
+
+# -- item list with granular product 
+granular_product_item_list <- ddply(
+  transactions_df,
+  c("os__cart_id"),
+  function(df)paste(df$granular_product, collapse=",")
+)
+
+# Dropping `os__cart_id` since only the items are needed
+# Renaming the remaining column
+brands_item_list$os__cart_id <- NULL
+colnames(brands_item_list) <- c("brands")
+
+granular_product_item_list$os__cart_id <- NULL
+colnames(granular_product_item_list) <- c("products")
+
+# Writing the items lists to csv
+write.csv(brands_item_list, brands_item_list_data_path, quote=F, row.names=T)
+write.csv(granular_product_item_list, granular_product_item_list_data_path, quote=F, row.names=T)
+
+# Loading the data as transactions format
+transactions_brands_df <- read.transactions(brands_item_list_data_path, format="basket", sep=",", skip=1)
+transactions_granular_product_df <- read.transactions(granular_product_item_list_data_path, format="basket", sep=",", skip=1)
+
+# Summaries
+summary(transactions_brands_df)
+inspect(transactions_brands_df)
+
+summary(transactions_granular_product_df)
+inspect(transactions_granular_product_df)
+
+```
+
+# Analysis
+## ARM
+### Item frequencies
+```{r}
+# Plotting most frequent brands
+itemFrequencyPlot(transactions_brands_df, topN=20, type="absolute")
+
+transactions_df %>% 
+  dplyr::select(p__serial_brand) %>%
+  group_by(p__serial_brand) %>% 
+  count() %>% 
+  arrange(desc(n)) %>%
+  head(20) %>% 
+  ggplot() +
+  geom_col(aes(y=reorder(p__serial_brand, n), x=n), col=3) +
+  ylab("Brand Name") +
+  xlab("Frequency") +
+  ggtitle("Top 20 Brands") +
+  theme_fivethirtyeight()
+
+
+# Plotting most frequent items 
+transactions_df %>% 
+  dplyr::select(granular_product) %>%
+  group_by(granular_product) %>% 
+  count() %>% 
+  arrange(desc(n)) %>%
+  head(20) %>% 
+  ggplot() +
+  geom_col(aes(y=reorder(granular_product, n), x=n), col=3) +
+  ylab("Granular Product Name") +
+  xlab("Item Frequency") +
+  ggtitle("Top 20 Items") +
+  theme_fivethirtyeight()
+
+```
+
+### Association rules
+```{r}
+# Generating rules 1 -- with high support and confidence
+rules_1_brands <- apriori(
+  transactions_brands_df,
+  parameter=list(supp = 0.001, conf = 0.09)
+)
+rules_1_products <- apriori(
+  transactions_granular_product_df,
+  parameter=list(supp = 0.001, conf = 0.01)
+)
+
+# -- inspecting rules 1
+inspect(sort(rules_1_brands, by="confidence", decreasing=T))[1:10, ]
+inspect(sort(rules_1_products, by="confidence", decreasing=T))[1:10, ]
+
+inspect(sort(rules_1_brands, by="lift", decreasing=T))
+inspect(sort(rules_1_products, by="lift", decreasing=T))
+
+# Generating rules where the lhs is specified
+rules_2_brands <- apriori(
+  transactions_brands_df,
+  parameter=list(supp = 0.0001, conf = 0.01),
+  appearance=list(lhs="some brand name", default="rhs") 
+)
+rules_2_products <- apriori(
+  transactions_granular_product_df,
+  parameter=list(supp = 0.001, conf = 0.01),
+  appearance=list(lhs="some product name", default="rhs") 
+)
+
+# -- inspecting rules 2
+inspect(sort(rules_2_brands, by="confidence", decreasing=T))
+inspect(sort(rules_2_products, by="confidence", decreasing=T))
+
+inspect(sort(rules_2_brands, by="lift", decreasing=T))
+inspect(sort(rules_2_products, by="lift", decreasing=T))
+
+
+# Generating rules where the rhs is specified
+rules_3_brands <- apriori(
+  transactions_brands_df,
+  parameter=list(supp = 0.0001, conf = 0.01, minlen=3),
+  appearance=list(rhs="some brand name", default="lhs") 
+)
+rules_3_products <- apriori(
+  transactions_granular_product_df,
+  parameter=list(supp = 0.001, conf = 0.01),
+  appearance=list(rhs="some product name", default="lhs") 
+)
+
+# -- inspecting rules 3
+inspect(sort(rules_3_brands, by="confidence", decreasing=T))[1:10, ]
+inspect(sort(rules_3_products, by="confidence", decreasing=T))[1:10, ]
+
+inspect(sort(rules_3_brands, by="lift", decreasing=T))
+inspect(sort(rules_3_products, by="lift", decreasing=T))
+
+
+```
+
+## Customer Segmentation
+### K-Means
+```{r}
+# Creating feature variables to cluster on
+cluster_features_df <- data.frame(transactions_df %>% 
+  select(os__user_id, os__sales, p__serial_brand) %>% 
+  group_by(os__user_id) %>% 
+  dplyr::summarise(
+    total_spent = sum(os__sales),
+    number_of_brands = n_distinct(p__serial_brand)
+  ))
+rownames(cluster_features_df) <- cluster_features_df$os__user_id
+cluster_features_df$os__user_id <- NULL
+
+# Silhouette plot
+set.seed(1234)
+fviz_nbclust(cluster_features_df, kmeans, method="silhouette") # plot indicates that 2 clusters are optimal (idk about that)
+
+# -- Running K-Means with k=2
+set.seed(1234)
+cluster_km2 <- kmeans(cluster_features_df, 2)
+transactions_df_km2 <- cluster_features_df
+transactions_df_km2$clusters <- as.factor(cluster_km2$cluster)
+
+# ---- plotting 2 clusters
+clusplot(transactions_df_km2, transactions_df_km2$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_km2, data=cluster_features_df, geom="point", ylab="Number of Brands", xlab="Total Spent (Scaled)", main="Customer Cluster Plot (k=2)")
+
+# -- Running K-Means with k=4
+set.seed(1234)
+cluster_km4 <- kmeans(cluster_features_df, 4)
+transactions_df_km4 <- cluster_features_df
+transactions_df_km4$clusters <- as.factor(cluster_km4$cluster)
+
+# ---- plotting 4 clusters
+clusplot(transactions_df_km4, transactions_df_km4$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_km4, data=cluster_features_df, geom="point", ylab="Number of Brands", xlab="Total Spent (Scaled)", main="Customer Cluster Plot (k=4)")
+
+
+# -- Running K-Means with k=6
+set.seed(1234)
+cluster_km6 <- kmeans(cluster_features_df, 6)
+transactions_df_km6 <- cluster_features_df
+transactions_df_km6$clusters <- as.factor(cluster_km6$cluster)
+
+# ---- plotting 6 clusters
+clusplot(transactions_df_km6, transactions_df_km6$clusters, color=T, shade=T, labels=0, lines=0)
+fviz_cluster(cluster_km6, data=cluster_features_df, geom="point", ylab="Number of Brands", xlab="Total Spent (Scaled)", main="Customer Cluster Plot (k=6)")
+
+# Using k=6
+cluster_assignments <- data.frame("assigned_cluster"=cluster_km6$cluster)
+cluster_assignments <- rownames_to_column(cluster_assignments, "user")
+
+# Adding the cluster assignments to `transactions_df`
+transactions_clusters_df <- transactions_df %>% 
+  inner_join(cluster_assignments, by=c("os__user_id"="user"))
+
+
+# Cluster summaries
+# -- counties
+transactions_clusters_df %>% 
+  group_by(assigned_cluster, s__estimated_county) %>% 
+  dplyr::summarise(
+    customers_within_county = n()
+  ) %>% 
+  mutate(
+    group_sum = ave(customers_within_county, assigned_cluster, FUN=sum),
+    cluster_proportion_of_customers_within_county = round(customers_within_county * 100 / group_sum, 3)
+  ) %>% 
+  arrange(assigned_cluster, desc(customers_within_county)) %>% 
+  mutate(
+    cluster_proportion_county_rank = ave(desc(customers_within_county), assigned_cluster, FUN=row_number)
+  ) %>% 
+  dplyr::filter(
+    (cluster_proportion_county_rank==1) |
+      (cluster_proportion_county_rank==2) |
+      (cluster_proportion_county_rank==3)
+  ) %>% 
+  dplyr::select(assigned_cluster, s__estimated_county, cluster_proportion_of_customers_within_county)
+
+# Cluster summaries
+# -- gender
+transactions_clusters_df %>% 
+  group_by(assigned_cluster, u__gender) %>% 
+  dplyr::summarise(
+    number_of_customers = n()
+  ) %>% 
+  mutate(
+    group_sum = ave(number_of_customers, assigned_cluster, FUN=sum),
+    cluster_proportion_of_customers_within_gender = round(number_of_customers * 100 / group_sum, 3)
+  ) %>% 
+  arrange(assigned_cluster, desc(number_of_customers)) %>% 
+  mutate(
+    cluster_proportion_gender_rank = ave(desc(number_of_customers), assigned_cluster, FUN=row_number)
+  ) %>% 
+  dplyr::filter(
+    (cluster_proportion_gender_rank==1) |
+      (cluster_proportion_gender_rank==2) |
+      (cluster_proportion_gender_rank==3)
+  ) %>% 
+  dplyr::select(assigned_cluster, u__gender, cluster_proportion_of_customers_within_gender)
+
+
+```
+
+## Prediction modeling
+### Creating a dataframe with `p__serial_brand` as binary output
+```{r}
+target_brand <- "some brand name"
+
+transactions_df$target_brand <- ifelse(transactions_df$p__serial_brand==target_brand, 1, 0)
+modeling_df <- transactions_df %>% 
+  dplyr::select(target_brand, s__estimated_county, os__n_units, os__sales, product_category_name, u__gender)
+
+# Creating and training and testing df
+split_ratio <- 0.7
+set.seed(1234)
+split_sample <- sample.int(n=nrow(modeling_df), size=floor(split_ratio*nrow(modeling_df)), replace=F)
+
+trainData <- modeling_df[split_sample, ]
+testData <- modeling_df[-split_sample, ]
+
+testData %>% 
+  select(target_brand) %>% 
+  group_by(target_brand) %>% 
+  count()
+
+testData %>% 
+  select(s__estimated_county) %>% 
+  distinct() %>% 
+  arrange(s__estimated_county)
+
+```
+
+### DT
+```{r}
+# -- developing model 1
+dt_1 <- rpart(target_brand ~ ., data=trainData, method="class", control=rpart.control(cp=0))
+
+# -- predicting the outcomes and testing model 1
+testData$predicted_dt_1 <- predict(dt_1, testData, type="class")
+rsq.rpart(dt_1)
+fancyRpartPlot(dt_1, main="Decision Tree Model")
+
+dt_1_accuracy <- round(sum(testData$predicted_dt_1 == testData$target_brand) * 100 / nrow(testData), 3)
+confusion_matrix_dt_1 <- table(Predicted=testData$predicted_dt_1, Actual=testData$target_brand)
+
+
+# -- developing model 2
+dt_2 <- rpart(target_brand ~ ., data=trainData, method="class", control=rpart.control(cp=0, minsplit=200))
+
+# -- predicting the outcomes and testing model 2
+testData$predicted_dt_2 <- predict(dt_2, testData, type="class")
+rsq.rpart(dt_2)
+fancyRpartPlot(dt_2)
+
+dt_2_accuracy <- round(sum(testData$predicted_dt_2 == testData$target_brand) * 100 / nrow(testData), 3)
+confusion_matrix_dt_2 <- table(Predicted=testData$predicted_dt_2, Actual=testData$target_brand)
+
+
+# -- developing model 3
+dt_3 <- rpart(target_brand ~ ., data=trainData, method="class", control=rpart.control(cp=0, minsplit=200, maxdepth=5))
+
+# -- predicting the outcomes and testing model 3
+testData$predicted_dt_3 <- predict(dt_3, testData, type="class")
+rsq.rpart(dt_3)
+fancyRpartPlot(dt_3, main="Decision Tree Model")
+
+dt_3_accuracy <- round(sum(testData$predicted_dt_3 == testData$target_brand) * 100 / nrow(testData), 3)
+confusion_matrix_dt_3 <- table(Predicted=testData$predicted_dt_3, Actual=testData$target_brand)
+
+```
+
+### DT using caret
+```{r}
+# -- setting up CV
+train_control <- trainControl(method="cv", number=4)
+
+# -- developing model using caret
+dt_caret <- train(target_brand ~ ., data=trainData, method="rpart", trControl=train_control)
+
+dt_caret
+
+summary(dt_caret$finalModel)
+
+```
+
+### Naive Bayes
+```{r}
+# -- developing model 1
+nb_1 <- naiveBayes(target_brand ~ ., data=trainData)
+summary(nb_1)
+
+# -- predicting the outcomes and testing model 1
+testData$predicted_nb_1 <- predict(nb_1, testData)
+
+nb_1_accuracy <- round(sum(testData$predicted_nb_1 == testData$target_brand) * 100 / nrow(testData), 3)
+confusion_matrix_nb_1 <- table(Predicted=testData$predicted_nb_1, Actual=testData$target_brand)
+
+```
+
+### Logistic Regression
+```{r}
+# -- developing model 1
+glm_1 <- glm(target_brand ~ ., data=trainData, family="binomial")
+
+# -- predicting the outcomes and testing model 1
+testData$predicted_glm_1 <- ifelse(
+  predict.glm(glm_1, testData, type="response") > 0.50,
+  1,
+  0
+)
+
+glm_1_accuracy <- round(sum(testData$predicted_glm_1 == testData$target_brand) * 100 / nrow(testData), 3)
+confusion_matrix_glm_1 <- table(Predicted=testData$predicted_glm_1, Actual=testData$target_brand)
+
+```
